@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 )
+
+var ErrTooManyRequests = errors.New("too many requests")
 
 type (
 	Client struct {
@@ -49,6 +52,9 @@ func (p *Client) SendMessage(ctx context.Context, chatID, text string) error {
 	defer resp.Body.Close() //nolint:errcheck // ignore
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return ErrTooManyRequests
+		}
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
