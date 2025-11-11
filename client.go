@@ -9,7 +9,10 @@ import (
 	"net/http"
 )
 
-var ErrTooManyRequests = errors.New("too many requests")
+var (
+	ErrForbidden       = errors.New("forbidden")
+	ErrTooManyRequests = errors.New("too many requests")
+)
 
 type (
 	MiddlewareFunc func(next Handler) Handler
@@ -80,14 +83,19 @@ func (c *Client) sendMessage(ctx context.Context, chatID, text string) error {
 	}
 	defer resp.Body.Close() //nolint:errcheck // ignore
 
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusTooManyRequests {
-			return ErrTooManyRequests
-		}
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	//nolint:mnd // 1xx and 2xx status codes are ok
+	if resp.StatusCode < 300 {
+		return nil
 	}
 
-	return nil
+	switch resp.StatusCode {
+	case http.StatusForbidden:
+		return ErrForbidden
+	case http.StatusTooManyRequests:
+		return ErrTooManyRequests
+	default:
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
 }
 
 func (c *Client) doWithMiddlewares(ctx context.Context, h Handler) error {
