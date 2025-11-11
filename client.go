@@ -12,9 +12,20 @@ import (
 var ErrTooManyRequests = errors.New("too many requests")
 
 type (
+	MiddlewareFunc func(next Handler) Handler
+
+	Handler func(ctx context.Context) error
+
+	Option func(o *options)
+
 	Client struct {
 		httpClient *http.Client
 		botToken   string
+		options    *options
+	}
+
+	options struct {
+		middlewares []MiddlewareFunc
 	}
 
 	sendMessageRequest struct {
@@ -23,14 +34,32 @@ type (
 	}
 )
 
-func NewClient(httpClient *http.Client, botToken string) *Client {
-	return &Client{
-		httpClient: httpClient,
-		botToken:   botToken,
+func WithMiddlewares(middlewares ...MiddlewareFunc) Option {
+	return func(o *options) {
+		o.middlewares = append(o.middlewares, middlewares...)
 	}
 }
 
-func (p *Client) SendMessage(ctx context.Context, chatID, text string) error {
+func NewClient(httpClient *http.Client, botToken string, with ...Option) *Client {
+	opts := &options{}
+	for _, option := range with {
+		option(opts)
+	}
+
+	return &Client{
+		httpClient: httpClient,
+		botToken:   botToken,
+		options:    opts,
+	}
+}
+
+func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
+	return c.doWithMiddlewares(ctx, func(ctx context.Context) error {
+		return c.sendMessage(ctx, chatID, text)
+	})
+}
+
+func (c *Client) sendMessage(ctx context.Context, chatID, text string) error {
 	body, err := json.Marshal(sendMessageRequest{
 		ChatID: chatID,
 		Text:   text,
@@ -39,13 +68,13 @@ func (p *Client) SendMessage(ctx context.Context, chatID, text string) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", p.botToken), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", c.botToken), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
@@ -59,4 +88,11 @@ func (p *Client) SendMessage(ctx context.Context, chatID, text string) error {
 	}
 
 	return nil
+}
+
+func (c *Client) doWithMiddlewares(ctx context.Context, h Handler) error {
+	for i := len(c.options.middlewares) - 1; i >= 0; i-- {
+		h = c.options.middlewares[i](h)
+	}
+	return h(ctx)
 }
