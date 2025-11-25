@@ -15,9 +15,9 @@ var (
 )
 
 type (
-	Context struct {
+	Context interface {
 		context.Context
-		chatID string
+		ChatID() (string, bool)
 	}
 
 	MiddlewareFunc func(next Handler) Handler
@@ -32,6 +32,11 @@ type (
 		options    *options
 	}
 
+	middlewareContext struct {
+		context.Context
+		chatID string
+	}
+
 	options struct {
 		middlewares []MiddlewareFunc
 	}
@@ -42,7 +47,7 @@ type (
 	}
 )
 
-func (c *Context) ChatID() (string, bool) {
+func (c *middlewareContext) ChatID() (string, bool) {
 	return c.chatID, c.chatID != ""
 }
 
@@ -66,14 +71,12 @@ func NewClient(httpClient *http.Client, botToken string, with ...Option) *Client
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
-	return c.doWithMiddlewares(Context{Context: ctx}, func(ctx Context) error {
+	return c.doWithMiddlewares(&middlewareContext{Context: ctx, chatID: chatID}, func(ctx Context) error {
 		return c.sendMessage(ctx, chatID, text)
 	})
 }
 
 func (c *Client) sendMessage(ctx Context, chatID, text string) error {
-	ctx.chatID = chatID
-
 	body, err := json.Marshal(sendMessageRequest{
 		ChatID: chatID,
 		Text:   text,
