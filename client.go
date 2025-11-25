@@ -15,9 +15,14 @@ var (
 )
 
 type (
+	Context struct {
+		context.Context
+		chatID string
+	}
+
 	MiddlewareFunc func(next Handler) Handler
 
-	Handler func(ctx context.Context) error
+	Handler func(ctx Context) error
 
 	Option func(o *options)
 
@@ -36,6 +41,10 @@ type (
 		Text   string `json:"text"`
 	}
 )
+
+func (c *Context) ChatID() (string, bool) {
+	return c.chatID, c.chatID != ""
+}
 
 func WithMiddlewares(middlewares ...MiddlewareFunc) Option {
 	return func(o *options) {
@@ -57,12 +66,14 @@ func NewClient(httpClient *http.Client, botToken string, with ...Option) *Client
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID, text string) error {
-	return c.doWithMiddlewares(ctx, func(ctx context.Context) error {
+	return c.doWithMiddlewares(Context{Context: ctx}, func(ctx Context) error {
 		return c.sendMessage(ctx, chatID, text)
 	})
 }
 
-func (c *Client) sendMessage(ctx context.Context, chatID, text string) error {
+func (c *Client) sendMessage(ctx Context, chatID, text string) error {
+	ctx.chatID = chatID
+
 	body, err := json.Marshal(sendMessageRequest{
 		ChatID: chatID,
 		Text:   text,
@@ -98,7 +109,7 @@ func (c *Client) sendMessage(ctx context.Context, chatID, text string) error {
 	}
 }
 
-func (c *Client) doWithMiddlewares(ctx context.Context, h Handler) error {
+func (c *Client) doWithMiddlewares(ctx Context, h Handler) error {
 	for i := len(c.options.middlewares) - 1; i >= 0; i-- {
 		h = c.options.middlewares[i](h)
 	}
